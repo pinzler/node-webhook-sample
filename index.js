@@ -9,6 +9,10 @@ app.use(bodyParser.json());
 
 const smarSdk = require("smartsheet");
 
+//Added to capture sheet column names
+const columnMap = {}; 
+const columnTitle = "Story ID";
+
 // Initialize client SDK
 function initializeSmartsheetClient(token, logLevel) {
     smarClient = smarSdk.createClient({
@@ -27,6 +31,11 @@ async function probeSheet(targetSheetId) {
     };
     const sheetResponse = await smarClient.sheets.getSheet(getSheetOptions);
     console.log(`Found sheet: "${sheetResponse.name}" at ${sheetResponse.permalink}`);
+    
+    // Added to build column map for later reference - converts column name to column id
+            sheetResponse.columns.forEach(function(column) {
+                columnMap[column.title] = column.id;
+            });
 }
 
 /*
@@ -137,10 +146,61 @@ async function processEvents(callbackData) {
     // This sample handles each event individually.
     // Some changes (e.g. column rename) could impact a large number of cells.
     // A complete implementation should consolidate related events and/or cache intermediate data
+    
+    
     for (const event of callbackData.events) {
-        // This sample only considers cell changes
+        
+        console.log("Event Type: "+ event.eventType + " - Object Type: " + event.objectType);
+        
+        //Added to show a Row Change Event
+        if (event.objectType === "row" && event.eventType === "created") {
+            console.log(`Row created changed, row id: ${event.id}`);
+
+            // Since event data is "thin", we need to read from the sheet to get updated values.
+            const optionsRow = {
+                id: callbackData.scopeObjectId,             // Get sheet id from callback
+                queryParameters: {
+                    rowIds: event.id.toString()        // Just read one row
+                }
+            };
+            const responseRow = await smarClient.sheets.getSheet(optionsRow);
+            const newRow = responseRow.rows[0];
+
+            // Get the Story ID
+            const columnIdNew = columnMap[columnTitle];
+
+            const StoryIDCell = newRow.cells.find(function(c) {
+                return (c.columnId == columnIdNew);
+            });
+            console.log('Story ID: '+ StoryIDCell.displayValue);
+            console.log("");
+
+        }
+
+
+
         if (event.objectType === "cell") {
             console.log(`Cell changed, row id: ${event.rowId}, column id ${event.columnId}`);
+           
+            // Added to pull Story ID for each corresponding cell change
+            const optionsGetID = {
+                id: callbackData.scopeObjectId,             // Get sheet id from callback
+                queryParameters: {
+                    rowIds: event.rowId.toString()        // Just read one row
+                }
+            };
+            const responseGetID = await smarClient.sheets.getSheet(optionsGetID);
+            const rowGetID = responseGetID.rows[0];
+
+            const columnIdMatch = columnMap[columnTitle];
+             
+            const StoryIDCellMatch = rowGetID.cells.find(function(c) {
+                    return (c.columnId == columnIdMatch);
+                });
+
+            console.log('Story ID: '+ StoryIDCellMatch.displayValue);
+            
+
 
             // Since event data is "thin", we need to read from the sheet to get updated values.
             const options = {
@@ -155,7 +215,10 @@ async function processEvents(callbackData) {
             const cell = row.cells[0];
             const column = response.columns.find(c => c.id === cell.columnId);
             console.log(`**** New cell value "${cell.displayValue}" in column "${column.title}", row number ${row.rowNumber}`);
+
+            console.log("");
         }
+
     }
 }
 
